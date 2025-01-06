@@ -12,7 +12,8 @@ function Bricks({ bricks }) {
             width={brick.width}
             height={brick.height}
             fill={brick.color}
-          className="mt-20" />
+            className="mt-20"
+          />
         ) : null
       )}
     </>

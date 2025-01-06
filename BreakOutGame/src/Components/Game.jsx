@@ -4,7 +4,6 @@ import Ball from "../Components/Ball";
 import Bricks from "../Components/Brick";
 import ScoreDisplay from "../Components/ScoreDisplay";
 
-
 const GAME_WIDTH = 800;
 const GAME_HEIGHT = 600;
 const INITIAL_PADDLE_WIDTH = 100;
@@ -12,19 +11,29 @@ const PADDLE_HEIGHT = 20;
 const BALL_RADIUS = 10;
 const BRICK_COLUMNS = 4;
 const BRICK_GAP = 10;
-const BRICK_WIDTH = (GAME_WIDTH - BRICK_GAP * (BRICK_COLUMNS - 1)) / BRICK_COLUMNS;
+const BRICK_WIDTH =
+  (GAME_WIDTH - BRICK_GAP * (BRICK_COLUMNS - 1)) / BRICK_COLUMNS;
 const BRICK_HEIGHT = 30;
 const COLORS = ["red", "green", "blue", "yellow", "purple", "green"];
 
 function Game() {
   const [level, setLevel] = useState(1);
-  const [paddleX, setPaddleX] = useState(GAME_WIDTH / 2 - INITIAL_PADDLE_WIDTH / 2);
+  const [paddleX, setPaddleX] = useState(
+    GAME_WIDTH / 2 - INITIAL_PADDLE_WIDTH / 2
+  );
   const [balls, setBalls] = useState([
-    { x: GAME_WIDTH / 2, y: GAME_HEIGHT - PADDLE_HEIGHT - BALL_RADIUS - 10, dx: 4, dy: -4 },
+    {
+      id: 1,
+      x: GAME_WIDTH / 2,
+      y: GAME_HEIGHT - PADDLE_HEIGHT - BALL_RADIUS - 10,
+      dx: 4,
+      dy: -4,
+      lastBrickColor: null,
+    },
   ]);
   const [bricks, setBricks] = useState([]);
   const [score, setScore] = useState(0);
-  const [lives, setLives] = useState(3);
+  const [lives, setLives] = useState(4);
   const [gameOver, setGameOver] = useState(false);
   const [win, setWin] = useState(false);
 
@@ -33,10 +42,11 @@ function Game() {
   useEffect(() => {
     const createBricks = () => {
       const newBricks = [];
-      const rows = Math.min(level + 1, 5); // Increment rows with levels (max 5 rows)
+      const rows = Math.min(level + 1, 5);
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < BRICK_COLUMNS; col++) {
           newBricks.push({
+            id: `${row}-${col}`,
             x: col * (BRICK_WIDTH + BRICK_GAP),
             y: row * (BRICK_HEIGHT + BRICK_GAP),
             width: BRICK_WIDTH,
@@ -73,9 +83,8 @@ function Game() {
 
       setBalls((prevBalls) =>
         prevBalls.map((prev) => {
-          let { x, y, dx, dy } = prev;
+          let { id, x, y, dx, dy, lastBrickColor } = prev;
 
-          // Ball collision with walls
           if (x + dx > GAME_WIDTH - BALL_RADIUS || x + dx < BALL_RADIUS) {
             dx = -dx;
           }
@@ -83,7 +92,6 @@ function Game() {
             dy = -dy;
           }
 
-          // Ball collision with paddle
           if (
             y + dy > GAME_HEIGHT - PADDLE_HEIGHT - BALL_RADIUS &&
             x > paddleX &&
@@ -92,10 +100,9 @@ function Game() {
             dy = -dy;
           }
 
-          // Ball falls below the paddle
           if (y + dy > GAME_HEIGHT) {
             setLives((prev) => prev - 1);
-            if (lives <= 1) {
+            if (lives <= 0) {
               setGameOver(true);
             }
             return {
@@ -104,10 +111,10 @@ function Game() {
               y: GAME_HEIGHT - PADDLE_HEIGHT - BALL_RADIUS - 10,
               dx: 4,
               dy: -4,
+              lastBrickColor: null,
             };
           }
 
-          // Ball collision with bricks
           const newBricks = bricks.map((brick) => {
             if (
               !brick.hit &&
@@ -119,8 +126,18 @@ function Game() {
               setScore((prev) => prev + 10);
               dy = -dy;
 
-              // Trigger bomb animation at the brick's position
-              triggerBombAnimation(brick.x + brick.width / 2, brick.y + brick.height / 2);
+              if (level === 2 && lastBrickColor === brick.color) {
+                setScore((prev) => prev + 50);
+                triggerBonusAnimation(
+                  brick.x + brick.width / 2,
+                  brick.y + brick.height / 2,
+                  50
+                );
+              }
+
+              triggerBrickBreakAnimation(brick.x, brick.y);
+
+              prev.lastBrickColor = brick.color;
 
               return { ...brick, hit: true };
             }
@@ -129,19 +146,19 @@ function Game() {
 
           setBricks(newBricks);
 
-          // Check for level completion
           if (newBricks.every((brick) => brick.hit)) {
             if (level < 3) {
               setLevel((prev) => prev + 1);
               setWin(false);
 
-              // Create balls for the next level
               setBalls(
                 Array.from({ length: level + 1 }, (_, i) => ({
+                  id: i + 1,
                   x: GAME_WIDTH / 2 + i * 20,
                   y: GAME_HEIGHT - PADDLE_HEIGHT - BALL_RADIUS - 10,
                   dx: 4 + i,
                   dy: -(4 + i),
+                  lastBrickColor: null,
                 }))
               );
             } else {
@@ -149,7 +166,7 @@ function Game() {
             }
           }
 
-          return { x: x + dx, y: y + dy, dx, dy };
+          return { id, x: x + dx, y: y + dy, dx, dy, lastBrickColor };
         })
       );
     }, 16);
@@ -157,49 +174,79 @@ function Game() {
     return () => clearInterval(interval);
   }, [paddleX, bricks, lives, gameOver, win, level]);
 
-  // Function to trigger bomb animation
-  const triggerBombAnimation = (x, y) => {
-    // Create a bomb div dynamically
-    const bomb = document.createElement("div");
-    bomb.className =
-      "absolute bg-red-500 rounded-full w-12 h-12 animate-[scaleFade_0.5s_ease-in-out]"; // Custom animation class
-    bomb.style.left = `${x}px`; // Set bomb position (x-coordinate)
-    bomb.style.top = `${y}px`; // Set bomb position (y-coordinate)`
-    bomb.style.transform = "translate(-50%, -50%)"; // Center the bomb
-    bomb.style.pointerEvents = "none"; // Ignore clicks on the bomb
-    document.body.appendChild(bomb);
-  
-    // Remove the bomb after animation completes (500ms)
+  const triggerBrickBreakAnimation = (x, y) => {
+    const animationDiv = document.createElement("div");
+    animationDiv.className =
+      "absolute transform -translate-x-1/2 -translate-y-1/2 text-4xl animate-ping text-red-500";
+    animationDiv.style.left = `${x}px`;
+    animationDiv.style.top = `${y}px`;
+    animationDiv.style.pointerEvents = "none";
+    animationDiv.innerText = "💥";
+    document.body.appendChild(animationDiv);
+
     setTimeout(() => {
-      document.body.removeChild(bomb);
+      document.body.removeChild(animationDiv);
     }, 500);
   };
-  
+
+  const triggerBonusAnimation = (x, y, points) => {
+    const bonusDiv = document.createElement("div");
+    bonusDiv.className =
+      "absolute text-green-500 text-3xl font-bold animate-bounce";
+    bonusDiv.style.left = `${x}px`;
+    bonusDiv.style.top = `${y}px`;
+    bonusDiv.style.pointerEvents = "none";
+    bonusDiv.innerText = `+${points}`;
+    document.body.appendChild(bonusDiv);
+
+    setTimeout(() => {
+      document.body.removeChild(bonusDiv);
+    }, 500);
+  };
 
   return (
     <div>
       <ScoreDisplay />
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "20px" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          marginBottom: "20px",
+        }}
+      >
         <div className=" flex flex-row gap-64">
-          <div className="font-bold">Level: {level}</div>
-          <div className="font-bold">Score: {score}</div>
-          <div className="font-bold">Lives: {lives}</div>
+          <div className="font-bold text-2xl">Level: {level}</div>
+          <div className="font-bold text-2xl">Score: {score}</div>
+          <div className="font-bold text-2xl">Lives: {lives}</div>
         </div>
       </div>
 
       <svg
         width={GAME_WIDTH}
         height={GAME_HEIGHT}
-        style={{ border: "1px solid black", marginTop: "20px" }}
+        className="border-4 border-black rounded-lg shadow-2xl transition duration-500 ease-in-out transform hover:scale-105 hover:shadow-3xl"
+        style={{ marginTop: "20px" }}
       >
         {gameOver && (
-          <text x={GAME_WIDTH / 2 - 50} y={GAME_HEIGHT / 2} fontSize="30" fill="red">
-            Game Over
+          <text
+            x={GAME_WIDTH / 2 - 50}
+            y={GAME_HEIGHT / 2}
+            fontSize="30"
+            fill="red"
+            fontFamily="serif"
+            text="center"
+          >
+            Game Over😒
           </text>
         )}
         {win && level === 3 && (
-          <text x={GAME_WIDTH / 2 - 50} y={GAME_HEIGHT / 2} fontSize="30" fill="green">
-            You Win!
+          <text
+            x={GAME_WIDTH / 2 - 50}
+            y={GAME_HEIGHT / 2}
+            fontSize="30"
+            fill="green"
+          >
+            You Win😍
           </text>
         )}
         <Paddle paddleX={paddleX} width={paddleWidth} />
